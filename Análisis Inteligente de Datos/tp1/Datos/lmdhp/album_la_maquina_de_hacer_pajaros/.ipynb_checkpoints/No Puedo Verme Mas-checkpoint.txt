@@ -1,0 +1,16 @@
+track_number:  4 
+name:  No Puedo Verme Mas 
+id:  6mSqnp1KdNAV5mZcYOA92a 
+danceability:  0.404 
+energy:  0.63 
+key:  2 
+loudness:  -12.743 
+mode:  1 
+speechiness:  0.0867 
+acousticness:  0.0199 
+instrumentalness:  0.0677 
+liveness:  0.201 
+valence:  0.612 
+tempo:  140.147 
+duration_ms:  250293 
+time_signature:  4 

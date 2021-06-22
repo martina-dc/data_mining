@@ -1,0 +1,16 @@
+track_number:  3 
+name:  Boletos, Pases Y Abonos 
+id:  7rXJAqUTO6aEYDEBBMw9ww 
+danceability:  0.567 
+energy:  0.508 
+key:  7 
+loudness:  -14.62 
+mode:  1 
+speechiness:  0.0807 
+acousticness:  0.000712 
+instrumentalness:  0.623 
+liveness:  0.134 
+valence:  0.48 
+tempo:  111.149 
+duration_ms:  391013 
+time_signature:  4 

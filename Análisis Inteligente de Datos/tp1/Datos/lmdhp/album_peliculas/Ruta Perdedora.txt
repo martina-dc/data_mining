@@ -1,0 +1,16 @@
+track_number:  7 
+name:  Ruta Perdedora 
+id:  0zD5bRmN8jDzZRMHhDYers 
+danceability:  0.441 
+energy:  0.502 
+key:  9 
+loudness:  -13.945 
+mode:  0 
+speechiness:  0.0412 
+acousticness:  0.215 
+instrumentalness:  0.000843 
+liveness:  0.228 
+valence:  0.142 
+tempo:  128.144 
+duration_ms:  338013 
+time_signature:  4 

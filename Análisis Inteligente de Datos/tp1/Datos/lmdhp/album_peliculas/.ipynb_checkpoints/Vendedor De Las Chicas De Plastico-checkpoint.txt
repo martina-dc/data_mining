@@ -1,0 +1,16 @@
+track_number:  6 
+name:  Vendedor De Las Chicas De Plastico 
+id:  2bAtGpjZV0Zv4If6gPA0x2 
+danceability:  0.573 
+energy:  0.552 
+key:  7 
+loudness:  -14.424 
+mode:  1 
+speechiness:  0.0655 
+acousticness:  0.0334 
+instrumentalness:  0.0998 
+liveness:  0.115 
+valence:  0.497 
+tempo:  134.212 
+duration_ms:  283493 
+time_signature:  4 

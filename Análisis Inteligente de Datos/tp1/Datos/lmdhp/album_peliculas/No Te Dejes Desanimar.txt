@@ -1,0 +1,16 @@
+track_number:  3 
+name:  No Te Dejes Desanimar 
+id:  1MQpJgQp0goNJtEg9fBtnt 
+danceability:  0.628 
+energy:  0.375 
+key:  9 
+loudness:  -14.553 
+mode:  0 
+speechiness:  0.0343 
+acousticness:  0.649 
+instrumentalness:  1.06e-06 
+liveness:  0.273 
+valence:  0.42 
+tempo:  124.14 
+duration_ms:  247947 
+time_signature:  4 

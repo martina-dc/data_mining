@@ -1,0 +1,884 @@
+---
+title: "Introducción a Data Mining"
+subtitle: "Métodos No Jerárquicos - Ejercicio 2 Práctica 3"
+author:
+  - Martina Di Carlo
+  - Marcos Flesia
+  - Damian Gómez
+  - Florencia Ortega
+  - Analía Pastrana
+  - Gilda Suárez
+output:
+  html_document:
+  highlight: tango
+theme: cerulean
+toc: yes
+toc_float: yes
+lang: es-ar
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = F, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      comment = NA, 
+                      fig.align = "center", 
+                      out.width = "100%",
+                      fig.width=6, 
+                      fig.height=3) 
+```
+
+### 2.1 Aplique un método de agrupamiento no jerárquico considerando sólo las variables socio-demográficas.
+
+```{r Carga de paquetes y archivos}
+## Seteos iniciales ----
+rm(list=ls())
+#dev.off()
+
+lista_paquetes = c('dbscan','FactoMineR','janitor','factoextra','psych','corrplot','readr','tidyverse', 'DescTools', 'here','blockcluster', 'knitr', 'readxl','kableExtra', 'ggplot2', 'cluster')
+nuevos_paquetes = lista_paquetes[!(lista_paquetes %in% installed.packages()[,"Package"])]
+if(length(nuevos_paquetes)) install.packages(nuevos_paquetes, dependencies = TRUE)
+
+suppressWarnings(suppressMessages(easypackages::libraries(lista_paquetes)))
+
+PATH = here::here('datos') 
+
+# Archivo con los datos
+datos = read.csv(file.path(PATH,"consumos_2018.csv"),
+                 sep = ";",
+                 dec = ",",
+                 header = TRUE
+)
+
+desc_campos = readxl::read_xlsx(file.path(PATH,"desc_campos.xlsx")) %>% 
+              clean_names()
+
+
+```
+
+Revisamos el formato de los dos archivos cargados. 
+
+```{r Glimpse de datos}
+datos %>% 
+  head() %>% 
+  kbl(caption = "Tabla con datos demográficos y de consumo") %>%
+  kable_classic(full_width =T, 
+                html_font = "Cambria",
+                ) %>% 
+   scroll_box(width = "750px")
+```
+
+```{r Glimpse de Variables}
+desc_campos %>% 
+  head() %>% 
+  kbl(caption = "Tabla con descripción de las variables") %>%
+  kable_classic(full_width =T, 
+                html_font = "Cambria",
+                ) 
+```
+
+
+Vemos ahora un resumen de las medidas resúmen de nuestros datos:
+
+```{r Medidas de nuestros datos}
+summary(datos)
+```
+
+```{r}
+# Variables a utilizar
+vars_to_cluster = c("kids_r", "prop_r", "resid", "age", "inc_r", "persh", 
+                    "inc_b", "prop_b", "kids_b")
+
+dfDemograficas = datos %>% 
+  select(all_of(vars_to_cluster))
+
+
+```
+
+Matriz de correlaciones de las variables demográficas
+
+```{r corrplot}
+corrplot(cor(dfDemograficas), order = "hclust")
+
+```
+
+Aquí podemos ver que el porcentaje de hogares con niños se correlaciona negativamente con la edad. Ademas la edad esta correlacionada positivamente con la cantidad de propietarios en la zona. La variable resid esta correlacionada positivamente con persh, lo cual indica que son residencias mas grandes y mas cantidad de personas por hogar.  
+La mediana de los ingresos esta relacionada positivamente con la cantidad de propietarios.  
+
+
+
+```{r}
+# Estandarizar las variables
+dfDemograficasStd = scale(dfDemograficas)
+
+# Suma de cuadrado error (o within)---
+wss <- (nrow(dfDemograficasStd) - 1) * sum(apply(dfDemograficasStd, 2, var))
+for (i in 2:10) {
+  wss[i] <- sum(kmeans(dfDemograficasStd, centers = i)$withinss)
+}
+
+options(repr.plot.width=5, repr.plot.height=4)
+```
+
+Vemos la suma de cuadrados dentro de los cluster calculando el cuadrado del error:
+```{r}
+
+plot(1:10, wss, type = "b", xlab = "Number of Clusters",
+     ylab = "Suma de cuadrados dentro de los clust.")
+```
+
+Vemos el índice de Silhouette para entender con qué k debemos correr el Kmeans.
+
+```{r}
+#Indice Silhouette  ---
+fviz_nbclust(as.data.frame(dfDemograficasStd), kmeans, method = "wss") +
+  labs(title    = "Número óptimo de clusters a considerar",
+       subtitle = "Indice Silhouette")
+
+
+```
+
+En base al gráfico que nos ayuda a entender con cuantos grupos debemos correr el Kmeans, decidimos seleccionar 4 grupos. Analizamos la tabla resumen del Kmeans corrido con K=4, utilizando sólo aquellas variables demográficas:
+
+```{r}
+# Agrupamiento no jerarquico
+set.seed(42)
+clustering <- kmeans(dfDemograficasStd, centers = 4)
+
+dfDemograficasStd = dfDemograficasStd %>% 
+              as.data.frame()
+
+dfDemograficasStd$cluster <- clustering$cluster 
+
+dfDemograficasStd = dfDemograficasStd %>% 
+  as.data.frame()
+
+#Creamos la formula
+formula_para_describir <- as.formula(
+  paste0( paste(vars_to_cluster, collapse = " + "), " ~ cluster") 
+)
+
+tablaResumen <- describeBy(  formula_para_describir, 
+                               mat = TRUE, 
+                               data = dfDemograficasStd
+)
+
+tablaResumen =  tablaResumen %>% 
+                mutate(variable = rownames(.),
+                              cv       = 100 * sd / abs(mean) ) %>% 
+                rename(cluster = group1) %>% 
+                select(variable, cluster, n, mean, median, cv, min, max) %>% 
+                arrange(as.numeric(as.character(cluster)))   %>% 
+                mutate(variable = substr(variable, 1, nchar(variable)-1))
+
+tablaResumen = tablaResumen  %>% 
+  merge(desc_campos, by.x = 'variable', by.y = 'campo', all.x = TRUE)
+
+tablaResumen %>% 
+  kbl(caption = "Tabla de clusterización realizada solo con las var demográficas") %>%
+  kable_classic(full_width =T, 
+                html_font = "Cambria",
+                ) 
+```
+
+### 2.2 ¿Qué características tienen los grupos formados?
+
+**CLUSTER 1 (Familia tipo - media)**  
+-	Edad media ( 3 grupo de mayor edad)  
+-	Ingreso medio   
+-	Porcentaje de hijos por hogar medio, pero menor que el grupo 3  
+-	Cantidad promedio de propietarios  
+
+**CLUSTER 2 (LOS ESTUDIANTES sin hijos)**
+-Los más jóvenes  
+-Los que menor salario perciben  
+-Menor cantidad de hogares con hijos  
+-Menor cantidad de propietarios  
+
+**CLUSTER 3 (FAMILIA TIPO – clase media/alta)** 
+-Edad media, pero más viejos que el grupo 1  
+-Mayores Ingresos   
+-Mayor porcentaje de hogares con hijos  
+-Mayor cantidad de propietarios por clúster.
+
+**CLUSTER 4 (LOS JUBILADOS – hijos grandes que se fueron)**  
+-Los de mayor edad  
+-Ingreso promedio mayor que el 1  
+-Menor cantidad de hogares con hijos  
+-Segundo grupo con mayor cantidad de propietarios.  
+
+### 2.3 Imagínese que luego de presentar los resultados, la persona que evalúa los resultados le cuestiona por qué no incluyó la variable ‘zona’. ¿Qué opina usted? ¿Es correcto incluirla? Justifique
+
+
+Decidimos no incluir la zona porque es una variable categórica en escala ordinal y el método no jerárquico Kmeans requiere que todas las variables utilizadas sean continuas.
+
+### 2.4 Dado que ‘zona’ es una variable categórica en escala ordinal, ¿cómo podría incluirla en el análisis?
+
+Si quisiéramos incluir la zona en el análisis, podríamos decidir utilizar algún otro método que sea jerárquico. Si no decidimos hacer esto y seguimos utilizando KMeans podríamos intentar observar que sucedió con los clústeres con respecto a la zona. De todas formas, vamos a intentar ver qué sucede:
+
+```{r Con Zona}
+# Variables a utilizar
+vars_to_cluster = c("kids_r", "prop_r", "resid", "age", "inc_r", "persh", 
+                    "inc_b", "prop_b", "kids_b", 'zona')
+
+df_Dem_Zona = datos %>% 
+  select(all_of(vars_to_cluster))
+
+df_Dem_Zona_Std = scale(df_Dem_Zona)
+
+
+
+# Suma de cuadrado error (o within)---
+wss_2 <- (nrow(df_Dem_Zona_Std) - 1) * sum(apply(df_Dem_Zona_Std, 2, var))
+
+for (i in 2:11) {
+  wss_2[i] <- sum(kmeans(df_Dem_Zona_Std, centers = i)$withinss)
+}
+
+#options(repr.plot.width=5, repr.plot.height=4)
+
+```
+
+Vemos la suma de cuadrados dentro de los clúster calculando el cuadrado del error:
+
+```{r}
+plot(1:11, wss_2, type = "b", xlab = "Number of Clusters",
+     ylab = "Suma de cuadrados dentro de los clusters")
+
+```
+
+Vemos el índice de Silhouette para entender con qué k debemos correr el Kmeans.
+
+```{r}
+
+#Indice Silhouette  ---
+fviz_nbclust(as.data.frame(dfDemograficasStd), kmeans, method = "wss") +
+  labs(title    = "Número óptimo de clusters a considerar",
+       subtitle = "Indice Silhouette")
+
+
+```
+
+Viendo esto, decidimos volver a seleccionar 4 centros para correr el Kmeans.  
+```{r}
+
+# Agrupamiento no jerarquico
+set.seed(42)
+clustering_2 <- kmeans(df_Dem_Zona_Std, centers = 4)
+
+
+df_Dem_Zona$cluster <- clustering_2$cluster
+df_Dem_Zona = df_Dem_Zona %>% 
+              mutate(cluster = as.factor(cluster))
+
+#dfDemograficasStds$cluster <- clustering$cluster
+
+formula_para_describir_2 <- as.formula(
+  paste0( paste(vars_to_cluster, collapse = " + "), " ~ cluster") 
+)
+
+tablaResumen_2 <- describeBy(  formula_para_describir_2, 
+                               mat = TRUE, 
+                               data = df_Dem_Zona
+)
+
+tablaResumen_2 =  tablaResumen_2 %>% 
+  dplyr::mutate(variable = rownames(.),
+                cv       = 100 * sd / abs(mean) ) %>% 
+  dplyr::rename(cluster = group1) %>% 
+  dplyr::select(variable, cluster, n, mean, median, cv, min, max) %>% 
+  arrange(as.numeric(as.character(cluster)))   %>% 
+  mutate(variable = substr(variable, 1, nchar(variable)-1))
+
+tablaResumen_2 = tablaResumen_2  %>% 
+  merge(desc_campos, by.x = 'variable', by.y = 'campo', all.x = TRUE)
+
+
+tablaResumen_2 %>% 
+  kbl(caption = "Tabla de clusterización realizada solo con las var demográficas y la zona") %>%
+  kable_classic(full_width =T, 
+                html_font = "Cambria",
+                ) 
+
+```
+
+Vemos algunos gráficos adicionales
+
+```{r}
+
+head(df_Dem_Zona)
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+
+ggplot(df_Dem_Zona) +
+  aes(x=inc_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "inc_b", y = "Cluster")
+
+ggplot(df_Dem_Zona) +
+  aes(x=kids_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "kids", y = "Cluster")
+
+ggplot(df_Dem_Zona) +
+  aes(x=prop_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "prop", y = "Cluster")
+
+ggplot(df_Dem_Zona) +
+  aes(x=age, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Edad", y = "Cluster")
+
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+ggplot(df_Dem_Zona) + 
+  aes(x = zona, fill = cluster) +
+  geom_bar(width = 0.75) + 
+  labs(y = "Cluster", x = "Zonas") +
+  coord_flip()
+
+```
+
+Podemos concluir que los grupos son similares aunque cambiaron los números. 
+El clúster 1 con la zona, se parece al anterior clúster 3.
+El clúster 2 con la zona, se parece al anterior clúster 1.
+El clúster 3 con la zona, se parece al anterior clúster 2.
+El clúster 4 es parecido al anterior clúster 4.
+
+**CLUSTER 1: Familias tipo de alto poder adquisitivo**  
+-Los que mayor salario poseen.    
+-Mayor cantidad de hogares con hijos.    
+-Mayor cantidad de propietarios.    
+-Personas de edad media.  
+
+
+**CLUSTER 2: Familias tipo de clase media **  
+-Salarios más bajos que el 1.  
+-Menos familias con hijos que el 1.  
+-Alta cantidad de propietarios.  
+-Un poco más jóvenes que el 1.  
+
+
+**CLUSTER 3: Jóvenes sin hijos, podrían ser estudiantes** 
+-Son los de los ingresos más bajos.     
+-Menor cantidad de hijos.   
+-Muy pocos propietarios y los más jóvenes.   
+ 
+
+**CLUSTER 4: Personas de mayor edad, podrían ser jubilados con hijos grandes que se fueron**  
+-Ingresos bajos, pero no los más bajos.  
+-Menor cantidad de flias con hijos.  
+-Buena cantidad de propietarios.  
+-Edades más altas.    
+
+Incorporando **las zonas**:  
+
+Recordamos que la zona 1 era la zona más urbana y la 5 la más rural.  
+
+El clúster 1 tiene mucha cantidad de gente de la zona 4 y poca de la 5. Esto significa que las familias tipo de clase media alta, se encuentran distribuidas de manera equitativa, con menor cantidad en la zona 5 que es la más rural. 
+
+El clúster 2 tiene repartidas sus observaciones de manera bastante equitativa en todas las zonas.  
+
+El clúster 3 tiene muy pocas observaciones de la zona 1 y 2 y muchas de la 5. Esto es llamativo ya que nuestro clúster con gente más joven se encuentra alojado en ciudades más rurales, y esperábamos todo lo contrario.
+
+El clúster 4 tiene pocas observaciones de la zona 5. Esto significa que las personas de mayor edad se encuentran en ciudades más urbanas que en las más rurales.  
+
+**Concluimos** que si bien incorporamos la zona en el análisis del Kmeans, al ser un método que requiere variables numéricas continuas, lo realizado por el método con los números correspondientes a cada zona (variable ordinal) son cuestiones forzadas y no naturales. Podríamos haber utilizado otro método como veremos a continuación que permita incluir variables ordinales.  
+
+
+### 2.5 Realice una nueva segmentación incluyendo también las variables de consumo: ‘var_0001’, ‘var_0002’, …, ‘var_0012’.
+
+Aquí lo que hemos decidido hacer es aplicar MCA a las variables de consumo que son variables binarias discretas, para obtener las componentes que representen el 60% o más de las mismas. Como estas componentes serán variables numéricas continuas, podremos sumarlas al Kmeans junto con las variables demográficas que ya tenían estas características.
+
+```{r MCA}
+
+#Aplicamos MCA a las variables de consumo para que sean continuas y luego introducimos todas en un kmeans.
+
+#Seleccionamos las variables numericas
+datos_numericos = datos %>% 
+  select(-id, -zona)
+
+#Seleccionamos las variables a normalizar
+vars = c("kids_r", "prop_r", "resid", "age", "inc_r", "persh", 
+         "inc_b", "prop_b", "kids_b")
+
+df_demogr = datos_numericos %>% 
+  select(all_of(vars))
+
+#Normalizamos las continuas
+df_demogr = scale(df_demogr)
+
+df_consumo = datos_numericos %>% 
+  select(!all_of(vars))
+
+#Cambiamos los tipos de datos a booleanas
+df_consumo = df_consumo %>% 
+  mutate(var_0001 = as.factor(var_0001),
+         var_0002 = as.factor(var_0002),
+         var_0003 = as.factor(var_0003),
+         var_0004 = as.factor(var_0004),
+         var_0005 = as.factor(var_0005),
+         var_0006 = as.factor(var_0006),
+         var_0007 = as.factor(var_0007),
+         var_0008 = as.factor(var_0008),
+         var_0009 = as.factor(var_0009),
+         var_0010 = as.factor(var_0010),
+         var_0011 = as.factor(var_0011),
+         var_0012 = as.factor(var_0012)
+  )
+
+#Aplicamos MCA a las variables de consumo
+
+res_MCA = FactoMineR::MCA(df_consumo, ncp = 6, graph = F)
+
+print(res_MCA)
+
+
+```
+Vemos el resultado del MCA para las variables de consumo:  
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 1, fill="blue", title = "Contribución de las categorías a la dimensión 1")
+```
+Aquí podemos ver que la componente 1 esta relacionada a videojuegos, celular niños y programación infantil.
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 2, fill="blue", title = "Contribución de las categorías a la dimensión 2")
+
+```
+
+En la componente 2 vemos que son personas que van al cine 1 vez por semana, mira peliculas online y alquila peliculas. 
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 3, fill="blue", title = "Contribución de las categorías a la dimensión 3")
+```
+Vemos aqui que tiene vigilancia por monitoreo y hay teléfono de línea.
+
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 4, fill="blue", title = "Contribución de las categorías a la dimensión 4")
+```
+La componente 4 esta relacionada a telefonos con telefonos prepagos y telefono de linea.
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 5, fill="blue", title = "Contribución de las categorías a la dimensión 5")
+```
+
+La componente 5 esta relacionada a servicios de cable.
+
+
+```{r}
+factoextra::fviz_contrib(res_MCA, choice="var", axes = 6, fill="blue", title = "Contribución de las categorías a la dimensión 6")
+
+```
+La componente 6 explica la existencia o no de tabletas en el hogar y teléfonos con prepaga.
+
+
+En base a esto seleccionamos 6 componentes, que explican 11 de 12 variables de consumo y el 60% de la varianza.
+
+```{r}
+
+df_values_MCA = get_mca_ind(res_MCA)$coord
+eig_val = res_MCA$eig
+eig_val
+```
+
+Para entender un poco mas cuantas componentes seleccionar:
+```{r}
+barplot(eig_val[, 2], 
+        names.arg = 1:nrow(eig_val), 
+        main = "Variances Explained by Dimensions (%)",
+        xlab = "Principal Dimensions",
+        ylab = "Percentage of variances",
+        col ="steelblue"
+)
+lines(x = 1:nrow(eig_val), eig_val[, 2], 
+      type = "b", pch = 19, col = "red")
+
+```
+
+Volveremos a armar nuestro DF para correr el Kmeans, compuesto ahora por todas variables numéricas. Las variables demográficas están estandarizadas y las variables de consumo representadas por sus componentes continuas. Seleccionamos 6 componentes que representan el 60% de las variables originales. 
+
+```{r}
+#Armamos el df de nuevo
+datos_numericos = cbind(df_demogr, df_values_MCA)
+
+
+datos_numericos = datos_numericos %>% 
+                  as.data.frame() %>% 
+                  clean_names() %>% 
+                  as.data.frame()
+
+```
+Analizamos en Sillouette para entender cuántos K deberíamos seleccionar
+
+
+```{r}
+fviz_nbclust(as.data.frame(datos_numericos), kmeans, method = "silhouette") +
+labs(title    = "Número óptimo de clusters a considerar",
+subtitle = "Indice Silhouette")
+```
+Aqui vemos que nos sería una buena idea seleccionar 4 centros.
+
+```{r}
+#Volvemos a correr K-means con las variables demograficas y las 8 componentes que representan las variables de consumo
+set.seed(42)
+clustering_3 = kmeans(datos_numericos, centers = 4)
+
+formula_para_describir_3 = as.formula(
+  paste0( paste(names(datos_numericos), collapse = " + "), " ~ cluster") 
+)
+
+
+
+datos_numericos$cluster <- clustering_3$cluster
+
+tablaResumen_3 <- describeBy(  formula_para_describir_3, 
+                               mat = TRUE, 
+                               data = datos_numericos
+)
+
+tablaResumen_3 =  tablaResumen_3 %>% 
+  dplyr::mutate(variable = rownames(.),
+                cv       = 100 * sd / abs(mean) ) %>% 
+  dplyr::rename(cluster = group1) %>% 
+  dplyr::select(variable, cluster, n, mean, median, cv, min, max) %>% 
+  arrange(as.numeric(as.character(cluster)))   %>% 
+  mutate(variable = substr(variable, 1, nchar(variable)-1))
+
+tablaResumen_3 = tablaResumen_3  %>% 
+  merge(desc_campos, by.x = 'variable', by.y = 'campo', all.x = TRUE)
+
+tablaResumen_3 %>% 
+  kbl(caption = "Tabla de clusterización realizada con las variables demográficas y de las componenentes de las var de consumo") %>%
+  kable_classic(full_width =T, 
+                html_font = "Cambria",
+                ) 
+```
+
+Analizamos primero las variables demográficas a lo largo de los Clusters, creando Boxplots por cluster:
+
+```{r}
+datos_numericos = datos_numericos  %>% 
+  mutate(cluster = as.factor(cluster))
+
+
+par(mfrow=c(2,2))
+ggplot(datos_numericos) +
+  aes(x=inc_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "inc_b", y = "Cluster")
+
+ggplot(datos_numericos) +
+  aes(x=kids_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "kids", y = "Cluster")
+
+ggplot(datos_numericos) +
+  aes(x=prop_b, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "prop", y = "Cluster")
+
+ggplot(datos_numericos) +
+  aes(x=age, y=cluster) +
+  geom_boxplot()  +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Edad", y = "Cluster")
+
+
+```
+Luego les pegamos al DF original con las variables demográficas y las variables binarias de consumo, los clústers correspondientes creados por el Kmeans. De esta manera vamos a intentar incorporar al análisis de entendimiento del clúster, como afectaron las variables de consumo originales.
+
+```{r}
+###Acá lo que intentamos es al DF original, pegarle los clusters
+
+datos_final = datos %>% 
+              select(-id, -zona)
+
+datos_final$cluster <- clustering_3$cluster
+datos_final = datos_final %>% 
+              mutate(cluster = as.factor(cluster))
+
+
+# Change histogram plot line colors by groups
+
+datos_final %>% 
+  tabyl(cluster,var_0001) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 1")
+```
+
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0002) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 2")
+
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0003) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 3")
+
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0004) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 4")
+
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0005) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 5")
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0006) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 6")
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0007) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 7")
+```
+
+```{r}
+datos_final %>% 
+  tabyl(cluster,var_0008) %>% 
+  adorn_totals(c("row")) %>% 
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 2) %>%
+  adorn_ns() %>% 
+  adorn_title(placement = "top" ,"Clusters - var 8")
+```
+
+```{r}
+datos_final %>% 
+    tabyl(cluster,var_0009) %>% 
+    adorn_totals(c("row")) %>% 
+    adorn_percentages("row") %>%
+    adorn_pct_formatting(digits = 2) %>%
+    adorn_ns() %>% 
+    adorn_title(placement = "top" ,"Clusters - var 9")
+```
+
+```{r}
+datos_final %>% 
+    tabyl(cluster,var_0010) %>% 
+    adorn_totals(c("row")) %>% 
+    adorn_percentages("row") %>%
+    adorn_pct_formatting(digits = 2) %>%
+    adorn_ns() %>% 
+    adorn_title(placement = "top" ,"Clusters - var 10")
+```
+
+```{r}
+datos_final %>% 
+    tabyl(cluster,var_0011) %>% 
+    adorn_totals(c("row")) %>% 
+    adorn_percentages("row") %>%
+    adorn_pct_formatting(digits = 2) %>%
+    adorn_ns() %>% 
+    adorn_title(placement = "top" ,"Clusters - var 11")
+
+```
+
+```{r}
+
+datos_final %>% 
+    tabyl(cluster,var_0012) %>% 
+    adorn_totals(c("row")) %>% 
+    adorn_percentages("row") %>%
+    adorn_pct_formatting(digits = 2) %>%
+    adorn_ns() %>% 
+    adorn_title(placement = "top" ,"Clusters - var 12")
+
+
+```
+
+Con todas estas informaciones podemos concluir que:  
+
+**CLUSTER 1: Personas de alto poder adquisitivo, con hijos.**  
+-Los que mayor salario poseen  
+-Mayor cantidad de hogares con hijos  
+-Mayor cantidad de propietarios  
+-VAR 1 – Tienen en mayor proporción tablets en su hogar  
+-VAR 3 – Usualmente no tienen telefonía celular prepaga  
+-VAR 4 – mayor proporción de hogares con niños que poseen celular  
+-VAR 5 – Poseen sistema de vigilancia en su hogar  
+-VAR 6 – Son los que poseen mayor cantidad de videojuegos portátiles  
+-VAR 7 –Poseen DIRECTV  
+-VAR 11 – Hay una gran proporción de hogares que tienen más de 5 televisores en uso  
+
+
+**CLUSTER 2: Jóvenes sin hijos, podrían ser estudiantes**  
+-Los que menor salario perciben  
+-Menor cantidad de hogares con hijos  
+-Menor proporción de hogares propietarios  
+-Los más jóvenes  
+-Var 1 – No tienen tablets   
+-VAR 2 – No miran programación infantil en su hogar  
+-VAR 5 – No poseen sistema de vigilancia en su hogar  
+-VAR 7 – No poseen DIRECTV  
+-VAR 8 – Son los que más alquilan películas  
+-VAR 9- Son los que más van al cine  
+-VAR 10- Son los que más descargan películas online  
+-VAR 12 – Poseen teléfono de línea en su hogar  
+
+
+**CLUSTER 3: Familia tipo joven**  
+-Ingresos de medios a bajos  
+-Tienen hijos en menor proporción 
+-son relativamente jóvenes  
+- VAR 2 – Miran en gran medida programación infantil en su hogar  
+-VAR 4 – mayor proporción de hogares con niños que poseen celular  
+-VAR 6 –Poseen en menor proporción que el clúster 1 video juegos portátiles.  
+-VAR 7 –Poseen DIRECTV  
+-VAR 12 – Poseen teléfono de línea en su hogar  
+
+**CLUSTER 4: Personas de mayor edad, podrían ser jubilados con hijos grandes que se fueron**  
+-Menor cantidad de hogares con hijos  
+-Alto porcentaje de propietarios  
+-Los de mayor edad  
+-VAR 3 – Usan telefonía celular prepaga  
+-VAR 7 –Poseen DIRECTV  
+-VAR 8 – Son los que menos alquilan películas  
+-VAR 9 – Son los que menos van al cine  
+-VAR 10- Son los que menos descargan películas online 
+  
+
+### 2.6 ¿Podría aplicarse un agrupamiento jerárquico a este conjunto de datos?  
+
+Si, se puede. El metodo de agrupamiento Jerárquico es utilizado también para variables mixtas (cuantitativas, cualitativas y binarias). En los métodos de clasificación juega un rol importante el índice de similitud o distancia utilizada pues de ello depende en gran medida que los resultados finales tengan la mayor confiabilidad posible. El coeficiente o indicie de similitud que deberíamos usar para nuestros datos con variables mixtas es el de GOWER. A continuación mostramos como se realizaría mediante el paquete llamado 'cluster' con la funcion daisy. Esta nos permite aplicar clústering jerárquico con la distancia de gower.  
+
+```{r distancia de gower}
+#Creamos un df
+vars = c("kids_r", "prop_r", "resid", "age", "inc_r", "persh", 
+         "inc_b", "prop_b", "kids_b")
+
+df_demogr = datos_numericos %>% 
+            select(all_of(vars))
+
+datos2 = cbind(df_consumo, df_demogr)
+
+gower_dist = daisy(datos2,
+                   metric = "gower",
+                   type = list(logratio = c(17, 19), 
+                               symm = seq(1, 12, 1)
+                              )
+                   ) 
+
+
+summary(gower_dist)
+
+```
+
+```{r}
+gower_mat <- as.matrix(gower_dist)
+
+sil_width <- c(NA)
+for(i in 2:10){
+  
+  pam_fit <- pam(gower_dist,
+                 diss = TRUE,
+                 k = i)
+  
+  sil_width[i] <- pam_fit$silinfo$avg.width
+  
+}
+
+pam_fit <- pam(gower_dist, diss = TRUE, k = 4)
+
+pam_results <- datos2 %>%
+               mutate(cluster = pam_fit$clustering) %>%
+               group_by(cluster) %>%
+               do(the_summary = summary(.))
+
+pam_results$the_summary
+
+
+```
+
+Analizamos entonces los 4 clústers formados y vemos que:  
+
+**Clúster 1**  
+-	Promedio de hijos bajo  
+-	Mayor edad  
+-	Mayor cantidad de propietarios  
+-	Ingresos medios  
+-	Variables de consumo: muchas casas con teléfono celular con plan prepago, con teléfono de línea y vigilancia.  
+
+**Cluster 2**  
+-	Promedio de hijos mayor que el clúster 1  
+-	Propietarios similares al clúster 1  
+-	Ingresos mas altos que el anterior  
+-	Edad media  
+-	Variables de consumo: miran de manera regular programas para niños y videojuegos portátiles  
+
+**Clúster 3**  
+-	Edad media  
+-	Porcentaje de hogares con hijos menor que clúster 2.  
+-	Ingresos más bajos.   
+-	Cantidad similar de propietarios en relación al clúster 2.  
+-	Variables de consumo: servicio de cable, programación para niños, plan prepago de celular, teléfono de línea.  
+
+**Clúster 4**  
+-	Menor cantidad de hijos  
+-	Menores ingresos.  
+-	Menor cantidad de propietarios.  
+-	Mas jóvenes.  
+-	Variables de consumo: teléfono de linea, telefonía celular con prepago.    
+
+### Conclusión final  
+
+Por lo que vemos acá nuestros 4 grupos son similares a los creados con un método no jerárquico.   
+Siempre seleccionamos 4 grupos, pero entendemos que esto depende mucho del negocio y el objetivo de la segmentación de los hogares que se desea realizar. Hay 3 extremos bien marcados en todos los casos, que son el clúster de los más jóvenes con menores ingresos y menores variables de consumo asociadas a los niños. El clúster de las personas mayores, propietarias, con menor cantidad de hogares con niños e ingresos medios. Y por último, otro grupo que se divide en dos clústers diferentes que son las personas de mediana edad con niños (familias tipo) con variables de consumo asociadas a ellos, pero diferenciados por sus ingresos. 
