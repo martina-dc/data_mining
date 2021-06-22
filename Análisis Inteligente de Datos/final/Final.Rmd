@@ -1,0 +1,903 @@
+---
+title: "Análisis Inteligente de Datos"
+subtitle: "Trabajo Final"
+date: "Febrero 2021"
+author: "Di Carlo, Suarez y Gómez"
+output: 
+  html_document:
+    theme: spacelab
+    highlight: haddock
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+lang: es-ar
+editor_options:
+  
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      comment = NA, 
+                      fig.align = "center", 
+          #            out.width = "100%",
+                      fig.width=6, 
+                      fig.height=4)
+#Evitamos notación científica
+options(scipen=999)
+```
+
+
+```{r}
+#Instalamos los paquetes necesarios y los cargamos
+
+list_of_packages <- c( "dplyr", "tibble", "ggplot2", "cowplot", "tidyr", "ggridges", "ggbeeswarm", "GGally",  "plotly", "treemapify", "here",  "vcd", "colorspace", "corrplot", "readxl", 'pastecs','kableExtra','IRdisplay', 'knitr', 'magrittr','tidytext','ggwordcloud','stopwords', 'stringr')
+new_packages <- list_of_packages[!(list_of_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) install.packages(new_packages)
+
+suppressWarnings(suppressMessages(invisible(lapply(list_of_packages, library, character.only = TRUE))))
+
+```
+
+```{r Leer archivos y trabajarlos}
+
+#Leemos el archivo de trabajo resultados.txt
+PATH <- here('tp 2','Datos')
+PATH_TP1 <- here('tp1', 'Datos')
+
+
+df_charly <- read.delim(file.path(PATH, 'resultado.txt'),
+                      header = TRUE,
+                     )
+df_charly_nube <- df_charly
+#Leemos el archivo que nos brindara la categoria de los albums
+albums <- read_excel(path = file.path(PATH_TP1,"albums.xlsx")
+                     )
+
+
+#Nuestro primer archivo de trabajo tiene la siguiente estructura:
+#head(df_charly)
+#El segundo archivo que cuenta con la información de los albums es de la siguiente manera: 
+#head(albums)
+
+
+#Le agregamos al df_charly la información referida a la categoria de los albums. Ya no utilizaremos mas el dataframe de los albums ya que llevamos toda su información al df_charly.
+
+#Por útltimo tenemos el siguiente archivo del top 99:
+
+cien_mejores <-  read_excel(file.path(PATH,"100 mejores.xlsx")) 
+cien_mejores <- cien_mejores  %>%
+                select (-Artist,-Album,-"Date Added") %>%
+                rename(name = Track) %>%
+                mutate( name = as.factor(name),
+                        Top_cien = "SI"
+                       )
+
+
+df_charly <- merge(x = cien_mejores,
+                   y = df_charly, 
+                   by = "name",
+                  all.x= FALSE,
+                  all.y = TRUE
+                  )  %>%
+ 
+            mutate(Top_cien = case_when(
+					                                is.na(Top_cien) ~ 'NO',
+					                                 TRUE ~ 'SI'
+                                       )
+                  )
+
+#head(cien_mejores)
+#Ahora utilizaremos el 'nombre' para joinear esta tabla con el df_charly e incorporarle al mismo una marca que nos indique si la canción es parte de las 99 mejores o no.
+#Validamos tambien la clave para entender si por diferencias en la escritura de la misma no podremos marcar las 99. 
+#Al no contar con una clave numerica del album en el archivo cien mejores, tendremos que usar el nombre, aunque no sea lo mas recomendado. 
+#Finalmente, encontramos las siguientes 11 canciones que se encuentran escritas de diferente manera por lo que serÃ¡n excluidas y nos quedaremos con las 88 mejores, en vez de las 99 originales. 
+
+#Validamos el archivo que tiene las canciones descargadas de spotify
+lista_de_canciones <- distinct(tibble::as_tibble((df_charly$name))) 
+lista_de_canciones <- lista_de_canciones  %>%
+                       merge(cien_mejores,
+                             by.x = "value",
+                             by.y = 'name',
+                             all.x= TRUE,
+                             all.y = FALSE
+                              )  %>% 
+
+                        mutate(Top_cien = case_when(
+                                          is.na(Top_cien) ~ 'NO',
+                                          TRUE ~ 'SI'
+                                                    )
+                               )
+
+lista_de_canciones_si <- lista_de_canciones  %>%
+                        filter(Top_cien == 'SI')
+
+top_cien_no_encontradas <- cien_mejores %>%
+                           select(-Top_cien)  %>%
+                           merge(lista_de_canciones_si,
+                                 by.y = "value",
+                                 by.x = 'name',
+                                 all.x= TRUE,
+                                 all.y = FALSE
+                                 )  %>% 
+                            filter(is.na(Top_cien))  %>% 
+                            select(-Top_cien)
+
+lista_de_canciones_si <- lista_de_canciones  %>% 
+                         filter(Top_cien == 'SI')
+
+top_cien_no_encontradas <- cien_mejores %>%
+                           select(-Top_cien)  %>% 
+                           merge(lista_de_canciones_si,
+                                 by.y = "value",
+                                 by.x = 'name',
+                                 all.x= TRUE,
+                                 all.y = FALSE)  %>%
+                          filter(is.na(Top_cien))  %>%
+                          select(-Top_cien)
+
+#Aqui arriba lo que hicimos fue intentar entender con cuantas de las 99 habiamos podido joinear. 
+#En top 100 no encontradas estan las 11 que no matchearon
+
+# Agregamos al df charly la categoria  
+albums <- albums  %>% 
+          select(id, categoria)
+
+df_charly <- df_charly  %>%
+             merge(albums, 
+                   by.x = 'album_id', 
+                   by.y = 'id', 
+                   all.x = TRUE)  %>% 
+             rename('categoria_album' = categoria)
+```
+
+## Introducción  
+
+Este reporte contiene información referida a la carrera musical del artista Argentino Charly García.
+Previamente hemos consolidado todo su historial de canciones (tanto solistas como en bandas) en un archivo llamado resultado.txt cargado como ‘df_charly’. Asimismo, utilizaremos para el análisis un archivo llamado Albums.xlsx que contiene una marca que indica la categoría de cada uno de los álbumes de Charly García y un último archivo que contiene el Top 99 de mejores canciones del artista. Toda la información ha sido obtenida de la popular plataforma musical Spotify. Luego de trabajar nuestro archivo incorporando toda esta información antes mencionada, nuestro data frame de trabajo tiene la siguiente estructura:  
+
+```{r head}
+
+df_charly <- df_charly %>% 
+             rename(
+                    'nombre' = name,
+                    'numero_cancion' = track_number,
+                    'numero_disco' = disc_number,
+                    'nombre_album' = album_name,
+                    'artista_album' = album_artist,
+                    'bailabilidad' = danceability,
+                    'energia' = energy,
+                    'tono_cancion' = key,
+                    'volumen' = loudness,
+                    'modo' = mode,
+                    'oralidad' = speechiness,
+                    'acustica' = acousticness,
+                    'instrumentalidad' = instrumentalness,
+                    'vivocidad' = liveness,
+                    'positividad' = valence,
+                    'duracion_ms' = duration_ms,
+                    'compas' = time_signature,
+                    'url' = analysis_url
+                    )
+
+data.frame(variable = names(df_charly),
+           classe = sapply(df_charly, typeof),
+           primeros_valores = sapply(df_charly, function(x) paste0(head(x),  collapse = ", ")),
+           row.names = NULL) %>% 
+    kbl() %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+*Tabla 1 - Estructura de la tabla principal*
+
+Antes de seccionar las variables echamos un vistazo a sus características y anticipamos algunos resultados:    
+
+```{r resumen de los datos}
+
+#Eliminamos columnas que no utilizaremos para el analisis por no ser columnas de interes
+df_charly <- df_charly %>%
+             select(-album_id, -id, -uri, -url)
+
+
+options(digits=1, pager = T)
+resumen <- pastecs::stat.desc(df_charly[7:18], )
+resumen <- resumen  %>%
+           rename('bail.'= bailabilidad,
+                  'vol' = volumen,
+                  'oral' = oralidad,
+                  'acus.' = acustica,
+                  'instr.' = instrumentalidad,
+                  'vivo.' = vivocidad,
+                  'dur.' = duracion_ms
+                 ) 
+nombres_filas = c('cant_valores', 
+                  'cant_nulos',
+                  'cant_NA',
+                  'min',
+                  'max',
+                  'rango',
+                  'suma',
+                  'mediana',
+                  'media')
+
+resumen = head(resumen, 9)
+
+row.names(resumen) = nombres_filas
+
+ 
+resumen %>% 
+kbl() %>%
+kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>% 
+scroll_box(width = "700px")
+
+
+```
+*Tabla 2 - Medidas resúmenes de las variables numéricas*  
+
+Vemos una matriz de correlaciones entre nuestras variables numéricas para poder entender cómo se relacionan unas con otras:
+
+
+```{r}
+
+df_matrix = cor(as.matrix(df_charly %>% 
+                                    select(bailabilidad, energia, tono_cancion, volumen, modo, oralidad, acustica,                                               instrumentalidad, vivocidad, positividad,duracion_ms, compas   
+                                           )
+                         )
+               )
+
+
+
+corrplot(df_matrix, is.corr = FALSE, method = "square")
+
+```
+
+
+En este gráfico pudimos ver que el nivel de acústica tiene una correlación negativa con la energía. Además, la positividad esta correlacionada con la energía y la bailabilidad. La energía también se comporta de manera similar al volumen, o están altamente correlacionadas. En base a esto seleccionamos la energía, el nivel de acústica, la bailabilidad y duración en ms.  
+
+El objetivo de este análisis es intentar comprender qué variables hacen que una canción sea exitosa o no. Si bien no sabemos si contamos con la información suficiente como para determinarlo en base a las variables seleccionadas, intentaremos entenderlo. Por otra parte, además de las variables numéricas seleccionadas anteriormente, decidimos modificar dos variables más para poder mejorar nuestro análisis. A la variable numérica vivocidad decidimos dicotomizarla, considerando valor 0 si el valor real es menos de 0.5 y a 1 en caso contrario. Finalmente a la variable categórica categoria_album decidimos agruparla dejándola con 4 niveles posibles: estudio, otros, recop y vivo.  
+
+Debemos aclarar que, si bien nuestro archivo de éxitos contenía 99 canciones, no hemos utilizado las 99 por el modo en que estaban escritos sus nombres, sino  que utilizamos 88 para marcar nuestras canciones. Las 11 restantes tenían una clave (el nombre) que no coincidía con ninguna de las observaciones de nuestro df_charly.  
+
+```{r transformación de algunas variables}
+#Discretizamos livneness en vivocidad_dis
+
+df_charly <- df_charly  %>%
+             mutate(vivocidad_dis = case_when( vivocidad > 0.5 ~ 1,
+                                             vivocidad <= 0.5 ~ 0
+                                            ),
+                   vivocidad_dis = as.factor(vivocidad_dis)
+                  ) 
+
+# Agrupamos categoria_album
+df_charly <- df_charly  %>% 
+             separate(categoria_album, c("categoria_album_a", "borrar"), "_")  %>%
+             select(-borrar)
+
+df_charly <- df_charly  %>% 
+             select(nombre, Top_cien, categoria_album_a,  nombre_album, artista_album, vivocidad_dis, energia, acustica, duracion_ms, positividad)
+
+head(df_charly) %>% 
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>% 
+  scroll_box(width = "700px")
+```
+*Tabla 3 - Estructura de tabla con columnas seleccionadas*  
+
+## Resultados  
+
+### Frecuencias  
+
+
+
+#### Por categoría  
+```{r frecuencias por categoria}
+
+#Tabla 4
+
+frecuencia_categoria <- df_charly %>% 
+                        select(categoria_album_a) %>%
+                        table() %>% 
+                        as.data.frame() %>%
+                        rename('Categoría' = '.' ,
+                                'frecuencia' = Freq) 
+
+frecuencia_categoria = frecuencia_categoria[order(frecuencia_categoria$frecuencia, decreasing = T),]
+row.names(frecuencia_categoria) = 1:nrow(frecuencia_categoria)
+
+head(frecuencia_categoria, 4) %>% 
+kbl() %>%
+kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+ 
+
+```
+*Tabla 4 - Cantidad de canciones por categoría de Album*  
+
+#### Por artista    
+```{r frecuencias por artista}
+
+#Tabla 5
+
+
+
+frecuencia_artista_album <- df_charly %>% 
+                          select(artista_album) %>%
+                          table() %>%
+                          as.data.frame() %>% 
+                          rename('Artista_album' = '.' ,
+                                'frecuencia' = Freq)
+
+frecuencia_artista_album = frecuencia_artista_album[order(frecuencia_artista_album$frecuencia, decreasing = T),]
+row.names(frecuencia_artista_album) = 1:nrow(frecuencia_artista_album)
+
+
+head(frecuencia_artista_album, 15) %>% 
+kbl() %>%
+kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+
+```
+*Tabla 5 - Cantidad de canciones por Artista*  
+
+### Frecuencias conjuntas  
+
+```{r frecuencias conjuntas}
+#Tabla 6
+
+frecuencia_conjuntas <- df_charly %>%
+                        select(categoria_album_a, nombre_album, artista_album) %>%
+                        table() %>%
+                         as.data.frame() %>%
+                        filter(Freq != 0) %>% 
+                        rename('frecuencia' = Freq)
+
+frecuencia_conjuntas = frecuencia_conjuntas[order(frecuencia_conjuntas$frecuencia, decreasing = T),]
+row.names(frecuencia_conjuntas) = 1:nrow(frecuencia_conjuntas)
+
+head(frecuencia_conjuntas, 11) %>% 
+kbl() %>%
+kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+  
+
+```
+*Tabla 6 - Top de frecuencias conjuntas por Categoría de Album, Album y Artista*
+
+Se clarifica que no hay otras empatadas en 19.
+
+### Visualizaciones  
+
+
+```{r grafico 1}
+#Grafico 1
+# Con frecuencias relativas
+
+
+theme_set(theme_bw())
+
+ggplot(df_charly) + 
+      aes(x = artista_album, y = ..count.. / sum(..count..))+
+     geom_bar(width = 0.75) +
+     coord_flip() +
+     scale_y_continuous("Porcentaje", labels = scales::percent) +
+     ggtitle("% de canciones por Artista") +
+     labs(caption = 'Gráfico 1 - Porcentaje de canciones por artista') +
+     theme(axis.title.x = element_text(size = 9),
+           axis.title.y = element_text(size = 9),
+           plot.title = element_text(size = 10, hjust = 0.5, face = 'bold')
+     )
+
+```
+Aquí vemos que casi el 50% de canciones de Charly son como solista. Dentro de sus bandas, Sui Generis y Serú Giran son las dos con más canciones. Analizamos ahora qué artistas han tenido mayor impacto, viendo la cantidad de canciones exitosas (forman parte del top 88).  
+
+
+
+```{r grafico 2}
+
+#Grafico 2
+
+# Con frecuencias relativas
+
+ggplot(df_charly) +
+                  aes(x = artista_album, fill = Top_cien ) +
+                  geom_bar(position = 'fill') + 
+                  coord_flip() +
+                  scale_y_continuous("Porcentaje", labels = scales::percent) +
+                  ggtitle("% de canciones por Artista", ) +
+                  labs(caption = 'GrÃ¡fico 2 - Porcentaje de canciones por artista dentro del top 100') +
+                  theme(axis.title.x = element_text(size = 9),
+                  axis.title.y = element_text(size = 9),
+                plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'))+
+                scale_fill_brewer(palette = "Pastel1")
+
+
+```
+
+En el gráfico anterior se observa el porcentaje de canciones que han tenido éxito por artista. Esto nos permite entender cuáles son las bandas que tuvieron mejor reconocimiento, teniendo en cuenta la totalidad de sus canciones.  
+
+
+```{r grafico 3}
+#Grafico 3
+
+g <- df_charly %>%
+                  drop_na(categoria_album_a) %>%
+                  ggplot() +
+                  aes(x = categoria_album_a, fill = Top_cien) +
+                 labs(x = "categoria_album_a ",
+                      y = "Cant. caciones",
+                     fill = "Top 100",
+                     caption = 'Gráfico 3 -Cantidad de Éxitos por Categoria de Album" '
+                    ) +
+                  geom_bar(position = "dodge") +
+                  ggtitle("Cant. de Exitos por Categoria de Album") +
+                  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                        plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                        plot.margin=unit(c(0,0,0,2),"cm")
+                       ) +
+                    scale_fill_brewer(palette = "Pastel1")
+
+plot(g)
+
+```
+Un álbum de estudio es un álbum musical consistente en una selección de canciones grabadas en un estudio de grabación. La diferencia de un álbum de estudio con un álbum recopilatorio (el cual también suele contener canciones de estudio), es que el álbum de estudio incluye temas nuevos grabados por el artista, mientras que el recopilatorio, precisamente compila material publicado con anterioridad y ya conocido. Un punto común en estas dos categorías es la cantidad de canciones exitosas, por lo cual se podría verificar si son las mismas canciones. Además, al observar que la categoría de los albúmenes recopiladores tiene aproximadamente la misma cantidad de canciones reconocidas como no reconocidas vemos como se organizan en cada álbum.  
+
+```{r grafico 4}
+#Grafico 4
+
+g <- df_charly %>%
+                filter(categoria_album_a == "recop") %>%
+                drop_na(nombre_album) %>%
+                ggplot() + 
+                aes(x = nombre_album, fill = Top_cien) +
+              labs(x = "",
+                   y = "Cant. canciones", 
+                   fill = "Top 100",
+                   caption = 'Gráfico 4- Cantidad de Exitos por Album para la cat "Recop" ') +
+               geom_bar(position = "dodge") +
+               ggtitle("Cant. de Exitos por Album de categoria Recop") +
+                scale_fill_brewer(palette = "Pastel1") +
+                coord_flip() +
+                 theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 7),
+                        plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                        axis.text.x = element_text(angle = 45, hjust = 1)
+                       )
+plot(g)
+
+```
+De este gráfico podemos concluir que en la mayoría de los álbumes recopilatorios las canciones reconocidas se combinan con las no reconocidas superando la mitad del álbum. Esto puede ser una estrategia de venta. 
+
+Para entender el comportamiento que tiene las variables cuantitativas seleccionadas con respecto a las variables cualitativas comenzamos realizando un BoxPlot:  
+
+
+```{r grafico 5}
+#Grafico 5
+ggplot(df_charly) +
+                  aes(x = energia, y = artista_album) +
+                  geom_boxplot(show.legend = F) +
+                  labs(x = "Energia de las canciones",
+                        y = "Artistas",
+                       caption = 'Gráfico 5 - Boxplot de la energía de las canciones')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                  ggtitle("BoxPlot de la Energia por Artista" )  +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                       plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                       axis.text.x = element_text(angle = 45, hjust = 1)
+     
+                       ) 
+
+```
+Aquí podemos ver como la banda PorSuiGieco tiene una energía notablemente menor que el resto.  
+
+
+```{r grafico 6}
+
+#Grafico 6
+
+ggplot(df_charly) +
+              aes(x = acustica, y = artista_album) +
+              geom_boxplot(show.legend = F) +
+              labs(x = "Acustica", 
+                   y = "Artistas",
+                   caption = 'Grafico 6 - Boxplot del nivel de acustica de las canciones')  +
+              scale_fill_brewer(palette = "Pastel1") +
+              ggtitle("BoxPlot del nivel de acustica por Artista" )  +
+              theme(axis.title.x = element_text(size = 9),
+                    axis.title.y = element_text(size = 9),
+                    plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                    axis.text.x = element_text(angle = 45, hjust = 1)
+                   ) 
+
+```
+Este boxplot nos muestra que LMDHP tiene un nivel de acústica menor que el resto. En el otro extremo se encuentra PorSuiGieco con un nivel de acústica alto.  
+
+
+```{r grafico 7}
+
+#Grafico 7
+
+ggplot(df_charly) +
+                  aes(x = duracion_ms, y = artista_album) +
+                  geom_boxplot(show.legend = F) +
+                  labs(x = "Duracion",
+                       y = "Artistas",
+                       caption = 'Grafico 7 - Boxplot de la duracion')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                  ggtitle("BoxPlot de la duracion por Artista" )  +
+                   theme(axis.title.x = element_text(size = 9),
+                          axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                       )
+
+```
+Este boxplot no nos muestra ninguna cuestión atípica en cuando a la duración de las canciones por cada artista.  
+
+
+```{r grafico 8}
+#Grafico 8
+
+ggplot(df_charly) +
+                  aes(x = positividad, y = artista_album) +
+                   geom_boxplot(show.legend = F) +
+                 labs(x = "Positividad", 
+                      y = "Artistas" ,
+                      caption = 'Gráfico 8 - Boxplot de la positividad')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                   ggtitle("BoxPlot de la Positividad por Artista" ) +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                        plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                        axis.text.x = element_text(angle = 45, hjust = 1)
+                        )
+
+```
+Después de haber evaluado el comportamiento de las variables cuantitativas por artista, se puede notar una anomalía en el artista PorSuiGieco que tiene energía y positividad en niveles mucho más bajos que el resto mientras que el nivel de acústica tiene valores notablemente más altos. Esto puede explicar la ausencia de sus canciones en el top 88. Investigando si existía alguna otra variable que podría explicar esta anomalía descubrimos que PorSuiGieco fue un supergrupo de folk rock argentino formado por importantes figuras del rock acústico argentino, lo que explica los niveles de acústica. Este reagrupe provenía de "Por" (Raúl Porchetto), "Sui" (Sui Generis), "Gieco" (León Gieco). Hicieron solo 3 conciertos y grabaron un solo disco. Concluyendo que al ser una banda que tenía influencia de otros artistas genere anomalías en las variables cuantitativas.
+
+
+```{r}
+#Grafico 9 
+
+ggplot(df_charly) +
+                  aes(x = energia, y = positividad ,color = vivocidad_dis) +
+                  geom_point() +
+                  ggtitle("Energia vs Positividad - Categorizado por En vivo") +
+                  labs(caption = 'Grafico 9 - Scatter plot de la postividad vs la energia considerando si se grabo en vivo') +
+                  scale_fill_brewer(palette = "Pastel1") +
+                   theme(axis.title.x = element_text(size = 9),
+                         axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                       )
+
+```
+Este gráfico de puntos nos muestra algo que nos esperábamos, que es que a medida que la positividad de la canción es más alta también lo es su energía. El hecho de que la canción haya sido grabada en vivo, hace que no tengamos tantas canciones en vivo que tengan su energía menor a 0.25 y se encuentran en su mayoría por arriba de ese valor.  
+
+
+```{r grafico 10}
+#Grafico 10
+
+ggplot(df_charly) +
+                   aes(x = energia, y = positividad ,color = categoria_album_a) +
+                    geom_point() +
+                    ggtitle("Energia vs Positividad - Categorizado por Categoria de Album")+ 
+                    labs(caption = 'Grafico 10 - Scatter plot de la postividad vs la energia considerando la categoria')+
+                    scale_fill_brewer(palette = "Pastel1")+
+                     theme(axis.title.x = element_text(size = 9),
+                            axis.title.y = element_text(size = 9),
+                            plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                             axis.text.x = element_text(angle = 45, hjust = 1)
+                            )
+
+
+```
+Vemos ahora lo mismo que antes, pero con los colores marcando el tipo de álbum. No encontramos nada destacable con respecto a estas dos medidas cuando consideramos la categoría del álbum en que se encuentran.  
+
+
+```{r grafico 11}
+#Grafico 11
+
+
+ggplot(df_charly) +
+                   aes(x = energia, y = acustica, color = vivocidad_dis) +
+                   geom_point() +
+                    ggtitle("Energia vs Nivel de Arcustica - Categorizado por En vivo") +
+                   labs(caption = 'Grafico 11 - Scatter plot del nivel de acustica vs la energia considerando si fue grabada en vivo o no') +
+                    scale_fill_brewer(palette = "Pastel1") +
+                    theme(axis.title.x = element_text(size = 9),
+                          axis.title.y = element_text(size = 9),
+                           plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                            axis.text.x = element_text(angle = 45, hjust = 1)
+                           )
+
+
+```
+Aquí podemos ver que cuando el nivel de acústica es alto, la energía es mas baja y viceversa. Es decir, están inversamente relacionadas. Cuando consideramos si fue grabada en vivo o no, no encontramos nada destacable.  
+
+```{r grafico 12}
+
+#Grafico 12
+
+ggplot(df_charly) +
+                    aes(x = energia, y = acustica ,color = categoria_album_a)+
+                    geom_point() +
+                    ggtitle("Energia vs Nivel de Acustica - Categorizado por Cat. del Album") +
+                    labs(caption = 'Grafico 12 - Scatter plot del nivel de acustica vs la energia considerando la categoria del album') +
+                    scale_fill_brewer(palette = "Pastel1") +
+                    theme(axis.title.x = element_text(size = 9),
+                          axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                        axis.text.x = element_text(angle = 45, hjust = 1)
+                           )
+```
+Aquí observamos lo mismo que antes, una vez más, la categoría del álbum no tiene influencia en ninguna de estas dos variables numéricas. Podemos destacar también, que tenemos muchas canciones con niveles de acústica bajos, focalizados cerca del cero.  
+
+
+```{r grafico 13}
+
+#Grafico 13
+
+
+ggplot(df_charly) +
+                 aes(x = positividad, y = acustica, color = vivocidad_dis) +
+                 geom_point() +
+                 ggtitle("Positividad vs Nivel de Arcustica - Categorizado por En vivo") +
+                 labs(caption = 'Grafico 13 - Scatter plot del nivel de acustica vs la positividad considerando si fue grabado en vivo o no')+
+                 scale_fill_brewer(palette = "Pastel1") +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                      )
+
+
+```
+Cuando analizamos esta dos variables numéricas en conjunto, ya no encontramos una relación tan concreta, como sí vimos entre la energía y la positivdad. Algo que podemos destacar es que hay pocas canciones con valores altos de positividad y de acústica mientras que tenemos canciones que tienen valores bajos en ambas cercanos al 0.  
+
+
+
+```{r grafico 14}
+#Grafico 14
+
+ggplot(df_charly) +
+                   aes(x = positividad, y = acustica ,color = categoria_album_a) +
+                   geom_point() +
+                   ggtitle("Positividad vs Nivel de Acustica - Categorizado por Cat. del Album")+
+                   labs(caption = 'Grafico 14 - Scatter plot del nivel de acustica vs la positividad considerando si la categoria del album')+
+                   scale_fill_brewer(palette = "Pastel1") +
+                   theme(axis.title.x = element_text(size = 9),
+                         axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                          axis.text.x = element_text(angle = 45, hjust = 1)
+                        ) 
+
+```
+
+Si repetimos el mismo análisis, considerando ahora el tipo de álbum, no podemos  sacar ninguna conclusión que resalte a simple vista.
+
+
+
+ELIMINAR ESTA LINEA (agregado gigi) Analisis despues del comentario en la conclusion:
+
+En esta estapa del proyecto lo que vamos a analizar es el comportamiento de las variables cuantitativas seleccionadas con respecto a las variables cualitativas segmentando por Top cien.
+
+```{r grafico 15}
+#Grafico 15
+ggplot(df_charly) +
+                  aes(x = energia, y = artista_album, fill = Top_cien) +
+                  geom_boxplot(show.legend = T) +
+                  labs(x = "Energia de las canciones",
+                        y = "Artistas",
+                       fill = "Top cien",
+                       caption = 'Gráfico 15 - Boxplot de la energía de las canciones')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                  ggtitle("BoxPlot de la Energia por Artista" )  +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                       plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                       axis.text.x = element_text(angle = 45, hjust = 1)
+     
+                       ) 
+
+```
+
+En las canciones exitosas no se detecta una tendencia marcada en la variable energía. Observando dentro de cada artista vemos las canciones exitosas de  Sui Generis y la LMDHP tiene una energía menor. Mientras que Serú Girán y Solista tiene una energía similar.
+
+
+
+```{r grafico 16}
+
+#Grafico 16
+
+ggplot(df_charly) +
+              aes(x = acustica, y = artista_album, fill = Top_cien) +
+              geom_boxplot(show.legend = T) +
+              labs(x = "Acustica", 
+                   y = "Artistas",
+                   caption = 'Grafico 16 - Boxplot del nivel de acustica de las canciones')  +
+              scale_fill_brewer(palette = "Pastel1") +
+              ggtitle("BoxPlot del nivel de acustica por Artista" )  +
+              theme(axis.title.x = element_text(size = 9),
+                    axis.title.y = element_text(size = 9),
+                    plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                    axis.text.x = element_text(angle = 45, hjust = 1)
+                   ) 
+
+```
+
+Respecto de la acústica, se puede obserbar un comportamiento similar comparando las canciones exitosas y las no exitosas dentro de cada artista. Tampoco se evidencia un comportamiento marcado para definir qué nivel de acústica tiene una canción exitosa. 
+
+```{r grafico 17}
+
+#Grafico 17
+
+ggplot(df_charly) +
+                  aes(x = duracion_ms, y = artista_album, fill = Top_cien) +
+                  geom_boxplot(show.legend = T) +
+                  labs(x = "Duracion",
+                       y = "Artistas",
+                       caption = 'Grafico 17 - Boxplot de la duracion')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                  ggtitle("BoxPlot de la duracion por Artista" )  +
+                   theme(axis.title.x = element_text(size = 9),
+                          axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                       )
+
+```
+
+Este boxplot no nos muestra ninguna cuestión atípica en cuando a la duración de las canciones por cada artista y éxitos de las canciones.  
+
+
+```{r grafico 18}
+#Grafico 18
+
+ggplot(df_charly) +
+                  aes(x = positividad, y = artista_album, fill = Top_cien) +
+                   geom_boxplot(show.legend = T) +
+                 labs(x = "Positividad", 
+                      y = "Artistas" ,
+                      caption = 'Gráfico 18 - Boxplot de la positividad')  +
+                  scale_fill_brewer(palette = "Pastel1") +
+                   ggtitle("BoxPlot de la Positividad por Artista" ) +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                        plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                        axis.text.x = element_text(angle = 45, hjust = 1)
+                        )
+
+```
+
+En esta segunda etapa, en la que se ha evaluado el comportamiento de las variables cuantitativas por artista, segmentado por canciones exitosos y no exitosas, ratificamos que PorSuiGieco tiene un comportamiento atípico. Es aún mas atípico comparando con los blox plots de las canciones exitosas. Destacando que no se evidencia un comportamiento uniforme en las canciones exitosas.
+
+Ahora realizamos el mismo análisis de comparación de las variables cuantitativas, buscando patrones al segregar por canciones exitosas. 
+
+```{r grafico 19}
+#Grafico 19 
+
+ggplot(df_charly) +
+                  aes(x = energia, y = positividad ,color = Top_cien) +
+                  geom_point() +
+                  ggtitle("Energia vs Positividad - Categorizado por En vivo") +
+                  labs(caption = 'Grafico 19 - Scatter plot de la postividad vs la energia considerando si fue exitosa') +
+                  scale_fill_brewer(palette = "Pastel1") +
+                   theme(axis.title.x = element_text(size = 9),
+                         axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                       )
+
+```
+
+Este gráfico de puntos evidencia que las canciones exitosas y no exitosas tienen el mismo comportamiento en Energía vs Positividad.
+
+```{r grafico 20}
+#Grafico 20
+
+
+ggplot(df_charly) +
+                   aes(x = energia, y = acustica, color = Top_cien) +
+                   geom_point() +
+                    ggtitle("Energia vs Nivel de Arcustica - Categorizado por En vivo") +
+                   labs(caption = 'Grafico 20 - Scatter plot del nivel de acustica vs la energia considerando si fue exitosa o no') +
+                    scale_fill_brewer(palette = "Pastel1") +
+                    theme(axis.title.x = element_text(size = 9),
+                          axis.title.y = element_text(size = 9),
+                           plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                            axis.text.x = element_text(angle = 45, hjust = 1)
+                           )
+
+
+```
+Aquí tampoco evidenciamos un patrón con respecto a las canciones exitosas.
+
+```{r grafico 21}
+
+#Grafico 21
+
+
+ggplot(df_charly) +
+                 aes(x = positividad, y = acustica, color = Top_cien) +
+                 geom_point() +
+                 ggtitle("Positividad vs Nivel de Arcustica - Categorizado por En vivo") +
+                 labs(caption = 'Grafico 21 - Scatter plot del nivel de acustica vs la positividad considerando si fue exitosa o no')+
+                 scale_fill_brewer(palette = "Pastel1") +
+                  theme(axis.title.x = element_text(size = 9),
+                        axis.title.y = element_text(size = 9),
+                         plot.title = element_text(size = 10, hjust = 0.5, face = 'bold'),
+                         axis.text.x = element_text(angle = 45, hjust = 1)
+                      )
+
+
+```
+
+Finalizada esta  segunda etapa de analisis, no encontramos patrones en la varibles segmentando por Top cien. 
+
+
+
+El último análisis que realizaremos, estará enfocado en analizar los nombres de las canciones del artista. Para ello haremos una nube de palabras:  
+
+```{r}
+
+nombres <- df_charly_nube  %>% 
+           select(name) %>% 
+           mutate(name = str_to_lower(name) ,
+                  name = str_replace_all(name, ' - en vivo', ''),
+                  name = str_replace_all(name, '(en vivo)', ''),
+                  name = str_replace_all(name, ' - live', ''),
+                  name = str_replace_all(name, '(live)', ''),
+                  name = str_replace_all(name, '()', ''),
+                  name = str_replace_all(name, ' - remastered', ''),
+                  name = str_replace_all(name, '- remix', '')
+                  
+                 )
+
+filas_autores <- df_charly_nube[294:301,] %>% 
+                select(name) %>% 
+                separate(name, into = c('cancion', 'autores'), '-') %>% 
+                select(cancion) %>% 
+                mutate(cancion = str_to_lower(cancion)
+                       )
+
+
+nombres <- nombres[!(rownames(nombres) %in% seq(294, 301, 1)), ]
+nombres <- as.data.frame(nombres) %>% 
+          rename(cancion = nombres) %>% 
+          union( filas_autores)
+
+nombres_vf <- nombres %>% 
+             mutate(cancion = strsplit(as.character(cancion), " ")) %>% 
+             unnest(cancion)
+
+grouped_wordcloud <- nombres_vf %>% 
+                    group_by(cancion) %>%
+                   summarise(cantidad = n()) %>% 
+                   filter(cantidad != 1)
+
+#Filtramos prepocisiones, articulos y palabras que no agregan valor
+grouped_wordcloud <- grouped_wordcloud %>% 
+                     filter(!cancion %in% c('de','el','la','en','no','y', 'a','del',	'las','un','me','tu', '-', '/', '()', '/','te', 'los', 'es'))
+    
+  set.seed(42)
+  ggplot(grouped_wordcloud, aes(label = cancion, size = cantidad)) +
+    geom_text_wordcloud() +
+    theme_minimal()
+
+```
+Podemos ver que las palabras mas usadas en las canciones de charly son amor, cancion, quiero, love, instrumental, entre otras.  Si bien este hallazgo no nos brinda mucha información relevante, en una siguiente etapa podriamos ampliar el análisis incorporando las letras de las canciones. Podriamos analizar si la letra de la canción es relevante a la hora de entrar en el top 100 o no.  
+
+### Conclusiones  
+
+En la primera parte del trabajo analizamos la cantidad de canciones por artista, observando que la mayoría de las canciones de este dataframe son de Charly como solista. Esto concuerda con el tiempo que lleva Charly como solista en relación al tiempo que formó parte de una banda.
+
+Luego indagamos en la cantidad de éxitos tuvo cada artista en relación a la cantidad de canciones publicadas. Sorprendiéndonos con La máquina de hacer pájaros que tuvo más del 50 % de éxito. Pero aún lo que más llamativo de esta primera parte fue observar cómo estaban distribuidos los éxitos dentro de las categorías, exponiendo la estrategia de marketing que utilizaron cuando conformaron los álbumes recopilatorios. En los cuales, combinan canciones de éxito con canciones no exitosas seguramente para asegurarse la venta.  
+
+En la segunda parte, trabajamos con las variables cuantitativas elegidas dedicándonos a estudiar si existía un comportamiento particular en las canciones exitosas. Notando en los Box Plots que PorSuiGieco, que no tuvo éxitos, se comportaba de manera sesgada con respecto a todas las variables cuantitativas elegidas. Por último, mediante los scatter plots , pudimos confirmar una relación positiva o negativa de algunas variables, no las pudimos vincular con un patrón con Calidad de vivo, ni con la categoría del álbum, ni si eran exitosas o no.  
+
+Concluyendo, no podemos asegurar qué rango tiene que poseer una variable para que una canción sea exitosa, ya que no encontramos en los datos un patrón que lo indique. Esto se debe a que hay variables exógenas, como nivel de popularidad, que afectan al éxito de una canción. Sin embargo se observó que en el contexto actual, en el cual ya no se compran  discos físicos y son populares plataformas como Spotify, la estrategia de marketing mencionada ya no es aplicable, y la misma quedara para los libros.  
+
+

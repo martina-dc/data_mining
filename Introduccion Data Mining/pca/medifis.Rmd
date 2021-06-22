@@ -1,0 +1,196 @@
+---
+
+---
+# Análisis de PCA - Medifis
+
+Integrantes Grupo 2:
+
+
+* Martina Di Carlo
+* Gilda Suarez
+* Florencia Ortega
+* Marcos Flesia
+* Damian Gomez
+* Analia Pastrana
+
+## Análisis Exploratorio de datos
+ 
+```{r , echo = T }
+knitr::opts_chunk$set(echo = TRUE)
+
+suppressWarnings(suppressPackageStartupMessages(library(readr)))
+suppressWarnings(suppressPackageStartupMessages(library(knitr)))
+suppressWarnings(suppressPackageStartupMessages(library(psych)))
+suppressWarnings(suppressPackageStartupMessages(library(ggplot2)))
+suppressWarnings(suppressPackageStartupMessages(library(dplyr)))
+suppressWarnings(suppressPackageStartupMessages(library(here)))
+suppressWarnings(suppressPackageStartupMessages(library(ggfortify)))
+suppressWarnings(suppressPackageStartupMessages(library(grid)))
+suppressWarnings(suppressPackageStartupMessages(library(gridExtra)))
+suppressWarnings(suppressPackageStartupMessages(library(pastecs)))
+suppressWarnings(suppressPackageStartupMessages(library(factoextra)))
+suppressWarnings(suppressPackageStartupMessages(library(FactoMineR)))
+suppressWarnings(suppressPackageStartupMessages(library(corrplot)))
+
+
+
+
+path = here("datos")
+
+data_name = "medifis.txt"
+
+medifis = read.table(file = file.path(path, data_name),sep="\t",dec=".",fileEncoding = "utf8",header = T)
+
+summary(medifis)
+
+res = pastecs::stat.desc(medifis)
+round(res,2)
+
+```
+Realizamos el pairs panels
+
+```{r , echo = T }
+pairs.panels(medifis, 
+             method = "pearson", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             ellipses = TRUE, # show correlation ellipses
+             
+             
+)
+
+
+```
+
+Ahora un boxplot
+
+```{r , echo = T }
+
+dfInd = stack(medifis)
+names(dfInd) = c("valor","variable")
+
+ggplot(dfInd, aes(x = variable, y = valor)) +
+geom_boxplot()+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
+
+
+##  Análisis de PCA
+
+R o S?: Decidimos usar R ya que como vemos la escala de las variables es distinta, con unidades de medida diferentes. Por ejemplo, la estatura que tiene un rango mucho mayor a otras variables. Al seleccionar R utilizamos la correlación entre las variables estandarizando las diferentes escalas de las mismas.
+
+En el boxplot podemos observar que existen algunos outliers en las variables drt y aes, por lo tanto vamos a realizar el análisis de PCA con las variables originales y luego con el logaritmo de las mismas. De todas formas, creemos que no habrá grandes diferencias ya que tenemos pocos valores atípicos.
+
+Decidimos sacar del análisis a la variable sexo ya que si bien está representada por valores cuantitativos es una variable cualitativa.
+
+Comenzamos realizando el PCA, con los valores originales y sin el sexo.
+
+```{r , echo = T }
+x_1 = medifis %>%  select(-sexo) #quito la variable sexo
+
+mediPca1 = prcomp(as.matrix(x_1),center = T, scale. = T)
+
+summary(mediPca1)
+
+```
+
+
+Aqui podemos ver que el primer componente acumula el 0.7895 y el segundo el  0.87844. Ahora pasamos a ver como estan representadas las variables en la matriz de cargas.
+
+```{r , echo = T }
+knitr::kable(as.data.frame(unclass(mediPca1$rotation)))
+
+```
+
+```{r , echo = T }
+var_1 = get_pca_var(mediPca1)
+corrplot(var_1$contrib, is.corr=FALSE)  
+```
+
+Podemos ver que el 2do componente solamente explica la variable dcr (diámetro del cráneo), por lo tanto decidimos extraer las variables sexo y dcr y realizar el nuevamente el PCA con el resto de las mismas. Decidimos esto, ya que no tiene sentido dejar una PCA que explique muy bien una sola variable, para eso dejamos la variable original.
+
+Volvemos a correr entonces el PCA sacando el dcr.
+
+```{r , echo = T }
+x_2 = medifis %>%  select(-sexo, -dcr) #quito la variable sexo y el diámetro del cráneo
+
+mediPca2 = prcomp(as.matrix(x_2),center = T, scale. = T)
+
+summary(mediPca2)
+
+```
+
+```{r , echo = T }
+knitr::kable(as.data.frame(unclass(mediPca2$rotation)))
+
+```
+
+Vemos ahora que el primer componente acumula el 0.849. Si bien, no sabemos cual es el objetivo de negocio de este análisis, ni el costo de dejar una componente mas, decidimos quedarnos con el sexo, dcr y la PC1.
+
+Para terminar de comprobar que los outliers no estan incluyendo ruido en nuestro análisis, realizaremos el análisis de PCA anterior pero con el log de todas las variables.
+
+```{r , echo = T }
+x_3 = medifis %>%  select(-sexo, -dcr) #quito la variable sexo y el diámetro del cráneo
+x_3 = log(x_3)
+
+mediPca3 = prcomp(as.matrix(x_3),center = T, scale. = T)
+
+summary(mediPca3)
+
+```
+```{r , echo = T }
+knitr::kable(as.data.frame(unclass(mediPca3$rotation)))
+
+```
+
+
+Vemos que la diferencia utilizando el logaritmo no es significativa, por lo que optaremos por quedarnos con las variables sin transformaciones. Vemos primero el scree plot.
+```{r , echo = T }
+fviz_eig(mediPca2, addlabels = TRUE, ylim = c(0, 90))
+
+```
+
+
+
+Aquí podemos confirmar visualmente que seleccionando la primera componente tenemos el 85% de los datos.
+
+
+
+```{r , echo = T }
+mundoPca = FactoMineR::PCA(X = x_2, scale.unit = T,ncp = ncol(x_2), graph = T)
+```
+
+Este círculo de correlación, nos muestra la relación entre las variables analizadas. Se observa que todas las variables están relacionadas entre si. Esto se fundamenta en el ángulo menor a 90º que forman los vectores. Por ejemplo pie y est, están estrechamente relacionados.
+
+
+```{r , echo = T }
+var = get_pca_var(mediPca2)
+corrplot(var$contrib, is.corr=FALSE)  
+```
+
+
+
+Aquí en el gráfico de contribución de las variables podemos ver nuevamente que la PCA1 representa a todas las variables y que el resto solo representa bien a algunas. 
+
+Ahora generamos nuestro nuevo DF con las variables sexo, dcr y la PCA1 para poder utilizarlo para cualquier análsis postrior, contando ahora con menos variables.
+
+Realizamos un gráfico de dispersión para entender el comportamiento de nuestro nuevo DF.
+
+
+```{r , echo = T }
+df_componentes_selecc = data.frame(mediPca2$x) %>% 
+                        select(PC1)
+
+df_final = medifis %>%  
+           select(sexo, dcr) %>% 
+           cbind(df_componentes_selecc)
+          
+
+ggplot(data = df_final) + 
+  geom_point(aes(x = PC1, y = dcr, col = sexo )) + 
+  theme_minimal() 
+
+```
+

@@ -1,0 +1,16 @@
+track_number:  2 
+name:  Marilyn, La Cenicienta Y Las Mujeres 
+id:  2tG1hIdBRuNw8tvGcSi5tw 
+danceability:  0.334 
+energy:  0.376 
+key:  9 
+loudness:  -14.991 
+mode:  1 
+speechiness:  0.0328 
+acousticness:  0.255 
+instrumentalness:  0.0894 
+liveness:  0.183 
+valence:  0.267 
+tempo:  121.479 
+duration_ms:  263947 
+time_signature:  4 

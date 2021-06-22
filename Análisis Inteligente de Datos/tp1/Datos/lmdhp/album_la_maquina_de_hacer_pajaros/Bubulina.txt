@@ -1,0 +1,16 @@
+track_number:  1 
+name:  Bubulina 
+id:  3oemuYBDjVOwHOHfPfqRHr 
+danceability:  0.239 
+energy:  0.185 
+key:  9 
+loudness:  -17.821 
+mode:  0 
+speechiness:  0.0352 
+acousticness:  0.0569 
+instrumentalness:  0.0806 
+liveness:  0.0985 
+valence:  0.0382 
+tempo:  104.705 
+duration_ms:  335853 
+time_signature:  4 

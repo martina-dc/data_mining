@@ -1,0 +1,16 @@
+track_number:  7 
+name:  Ah Te Vi Entre Las Luces 
+id:  3uZfEOQOiAmHXDV02FZM4e 
+danceability:  0.321 
+energy:  0.348 
+key:  11 
+loudness:  -14.407 
+mode:  0 
+speechiness:  0.0339 
+acousticness:  0.0116 
+instrumentalness:  0.803 
+liveness:  0.14 
+valence:  0.0667 
+tempo:  113.101 
+duration_ms:  670507 
+time_signature:  4 

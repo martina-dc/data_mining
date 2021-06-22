@@ -1,0 +1,16 @@
+track_number:  2 
+name:  Como Mata el Viento Norte 
+id:  7BbpLe12HpkoZJcJs1A3SP 
+danceability:  0.451 
+energy:  0.401 
+key:  0 
+loudness:  -14.756 
+mode:  1 
+speechiness:  0.0449 
+acousticness:  0.0408 
+instrumentalness:  0.000755 
+liveness:  0.183 
+valence:  0.269 
+tempo:  87.484 
+duration_ms:  164440 
+time_signature:  4 

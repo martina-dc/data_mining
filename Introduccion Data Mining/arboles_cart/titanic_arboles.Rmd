@@ -1,0 +1,413 @@
+---
+title: "Introducción a Data Mining"
+subtitle: "Árboles de decisión"
+date: "Febrero 2021"
+author: "Grupo 2"
+output: 
+  html_document:
+    theme: flatly
+    highlight: haddock
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+lang: es-ar
+editor_options:
+  chunk_output_type: console
+  
+---
+
+
+
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      comment = NA, 
+                      fig.align = "center", 
+          #            out.width = "100%",
+                      fig.width=6, 
+                      fig.height=4)
+```
+
+## Carga de paquetes
+
+```{r}
+lista_paquetes = c('readxl','tidyverse','dplyr','readr','tidyverse', 'DescTools', 'here','rpart','rpart.plot' ,'knitr', 'readxl', 'ggplot2', 'ROCR', 'caret', 'recipes', 'Metrics', 'pROC')
+nuevos_paquetes = lista_paquetes[!(lista_paquetes %in% installed.packages()[,"Package"])]
+if(length(nuevos_paquetes)) install.packages(nuevos_paquetes, dependencies = TRUE)
+
+suppressWarnings(suppressMessages(easypackages::libraries(lista_paquetes)))
+
+PATH = here::here('arboles_cart', 'data') 
+```
+
+## Carga de archivos  
+Cargamos los archivos de test y train brindados y los unimos en un solo df para poder explorarlos.
+
+```{r}
+df_train = read.csv(file.path(PATH,"train.csv"),
+                 sep = ",",
+                 dec = ".",
+                 header = TRUE
+)
+  
+df_test = read.csv(file.path(PATH,"test.csv"),
+                 sep = ",",
+                 dec = ".",
+                 header = TRUE
+)
+  
+
+df = df_train %>% 
+     select(-Survived) %>% 
+     union(df_test)
+```
+## EDA y análisis de los datos
+
+Nuestros datos que tienen la siguiente apariencia:  
+
+```{r}
+knitr::kable(head(df))
+
+```
+*Tabla 1 - Preview de los datos*  
+
+Vemos el tipo de datos de nuestros DF
+```{r}
+str(df)
+
+
+```
+
+Realizamos un summary para entender nuestros datos numéricos o categóricos de relevancia:  
+```{r}
+knitr::kable(summary(df %>% select("Pclass", "Sex", "Age","SibSp", "Parch","Fare","Cabin","Embarked" )))
+
+```
+*Tabla 2 - Resumen de los datos*  
+
+
+Cambiamos el tipo de datos de Pclass a factor.
+
+```{r}
+df$Pclass = as.factor(df$Pclass)
+    
+```
+
+### Gráficos y análisis    
+
+```{r}
+ggplot(df) +
+  aes(x = Age, y = Sex, fill = Sex) +
+  geom_boxplot(show.legend = F) +
+  labs(x = "Edad", y = "Sexo") +
+  ggtitle("Boxplot de la edad abierta por sexo") +
+  scale_fill_brewer(palette = "Pastel1") + 
+  labs(caption = 'Gráfico 1 - Boxplot de la edad abierta por sexo')
+```
+
+El 50% de los pasajeros tuvo una edad entre 20 y 40 años. Con una media de 29.88. En lo que es la diferenciación entre mujeres y hombres esta equitativamente distribuido. Pero se destaca que los hombres cuentan con la mayoría de los outliers, la gente más grande del barco.     
+
+```{r}
+
+ggplot(df) +
+  aes(x = Fare, y = Pclass, fill = Pclass) +
+  geom_boxplot(show.legend = F) +
+  labs(x = "Fare", y = "Clase") +
+  ggtitle("Boxplot del valor del ticket abierto por clase del ticket") +
+  scale_fill_brewer(palette = "Pastel1")+
+  labs(caption = 'Gráfico 2 - Boxplot del valor del ticket abierto por clase del ticket')
+
+
+```
+Se observa que la distribución con valores superiores se encuentra en la clase 1. Pero se destaca que la diferencia de precio entre la clase 2 y 3 no es distintiva.  
+
+
+```{r}
+# Gr?fico base
+     
+    ggplot(df) + 
+    aes(x = Pclass, fill = Sex) +
+     labs(x = "Clase del ticket", y = "Cantidad de personas", 
+       fill = "Sexo")+ 
+  geom_bar(position = "dodge") +
+  ggtitle("Cantidad de personas por sexo y clase del ticket") +
+  scale_fill_brewer(palette = "Pastel1")+
+  labs(caption = 'Gráfico 3 - Cantidad de personas por sexo y clase del ticket')
+
+  
+```
+Se puede observar en este gráfico que hay una mayor cantidad de varones en general (que coincide con lo antes descripto), en especial en la clase 3. En las clases 1 y 2 las diferencias no son tan marcadas como se ve en la clase 3.  
+
+
+```{r}
+# Gráfico base
+     
+    ggplot(df) + 
+    aes(x = SibSp, fill = Pclass) +
+     labs(x = "Cantidad de hermanos o esposos en el barco", 
+          y= "Cantidad de personas",
+       fill = "Clase del ticket")+ 
+  geom_bar(position = "dodge") +
+  ggtitle("Clase del ticket y cantidad de hermanos o esposos en el barco") +
+  scale_fill_brewer(palette = "Pastel1") +
+  facet_wrap(~ Sex) +
+  theme(legend.position = "bottom")+
+    labs(caption = 'Gráfico 4 -Clase del ticket y cantidad de hermanos o esposos en el barco')
+
+```
+
+Siguiendo la exploracion de los datos en relacion a la clase del ticket, podemos observar que la mayoria de los pasajeros viajan solos, en especial los de la clase 3 y son en su mayoria varones. Un grupo de pasajeros  de clase 1 y 2 viajan con al menos 1 familiar, este dato los diferencia claramente de los pasajeros de clase 3.
+
+
+```{r}
+# Gr?fico base
+     
+    ggplot(df) + 
+    aes(x = Parch, fill = Pclass) +
+     labs(x = "Cantidad de padres o hijos en el barco", 
+          y= "Cantidad de personas",
+       fill = "Clase del ticket")+ 
+  geom_bar(position = "dodge") +
+ scale_x_continuous(breaks = seq(0,9,1)) +
+  ggtitle("Clase del ticket y cantidad de padres o hijos en el barco") +
+  scale_fill_brewer(palette = "Pastel1")+
+  theme(legend.position = "bottom")+
+  labs(caption = 'Gráfico 5 - Clase del ticket y cantidad de padres o hijos en el barco')
+
+
+```
+
+Se puede observar que la clase 3 es la más numerosa ya sea, personas solas o acompañadas. Luego sigue la clase 1 y en niveles similares la clase 2 en cantidad de gente. Además, la mayor proporción de los viajeros, fue sin padres e hijos estando igualmente distribuidos los que estaban con 1 y 2 padres o hijos. Por la forma de los gráficos, se puede intuir que los familiares viajaban juntos en la misma clase.  
+
+Ahora lo que vamos a intentar analizar es cada una de las características de las personas y la supervivencia o no. Para eso usaremos el conjunto de train solamente, de ahora en adelante.
+
+```{r}
+df_train = df_train %>% 
+          mutate(rango_edad = case_when( Age <= 15 ~ 'Niño',
+                                         Age >15 & Age <= 60 ~ 'Adulto',
+                                         Age >50  ~ 'Anciano'
+            
+                                        ),
+                 sobrevivio = case_when(Survived == 0 ~ 'Murió',
+                                        TRUE ~ 'Sobrevivio'
+                                        ),
+                 sobrevivio = as.factor(sobrevivio),
+                 rango_edad = as.factor(rango_edad),
+                 Pclass = as.factor(Pclass),
+                 SibSp = as.factor(SibSp),
+                 Parch = as.factor(Parch)
+                )
+
+
+
+
+```
+Comenzamos viendo rapidamente el % de supervivientes en general:  
+
+```{r}
+s_table = as.data.frame(table(df_train$sobrevivio)) %>% 
+          rename('Survived' = 'Var1', 'Q' = 'Freq')
+
+library(RColorBrewer)
+myPalette <- brewer.pal(5, "Pastel2") 
+
+slices = sort(as.numeric(as.character(s_table$Q)), decreasing = F)
+lbls = c('Sobrevivio', 'Murió')
+pct = round(slices/sum(slices)*100)
+lbls = paste(lbls, pct) # add percents to labels
+lbls = paste(lbls,"%",sep="") # ad % to labels
+
+pie(slices,
+    labels = lbls, 
+    col=myPalette, 
+    main = 'Supervivencia del Titanic',
+      )
+
+```
+*Gráfico 6 - Supervivencia del Titanic*  
+
+Arrancamos viendo que solo el 38 % logró sobrevivir.  
+
+```{r}
+
+  df_train %>% 
+  ggplot() + 
+  aes(x = Sex, fill = as.factor(sobrevivio)) +
+  labs(x = "Sexo", y = "Cantidad de personas", 
+       fill = "Supervivencia") +
+  geom_bar(position = "fill") + 
+  scale_y_continuous("Proporci?n", labels = scales::percent) +
+  labs(y = "Porcentaje de sobrevivientes",
+       title = "Supervivencia por Sexo")+
+    scale_fill_brewer(palette = "Pastel1") + 
+    labs(caption = 'Gráfico 7 - Supervivencia por Sexo')
+
+```
+
+Cuando abrimos la supervivencia por sexo, podemos ver que claramente se priorizó en ayudar a las mujeres a salir, y por eso han sobrevivido casi el 75% de las mismas. Por otro lado, solo han sobrevivió el 20% de los varones. Recordamos que había casi el doble de varones que de mujeres en el barco.  
+Analizaremos ahora lo mismo, pero abriéndolo por rango etario:  
+ 
+```{r}
+# Gráfico base
+x_order = c('Niño', 'Adulto', 'Anciano')
+
+    ggplot(df_train) + 
+    aes(x = factor(rango_edad, level = x_order ),fill =  as.factor(sobrevivio)) +
+     labs(x = "Edad", 
+          y= "Cantidad de personas",
+       fill = "Supervivencia")+ 
+  geom_bar(position = "dodge") +
+ #scale_x_continuous(breaks = seq(0,9,1)) +
+  ggtitle("Cantidad de personas por edad y supervivencia") +
+  scale_fill_brewer(palette = "Pastel1")+
+  theme(legend.position = "bottom") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  facet_wrap(~ Sex)+
+  labs(caption = 'Gráfico 8 - Cantidad de personas por edad y supervivencia')
+
+
+
+
+```
+Aquí podemos ver que las mujeres menores que 21 son las que más muertes han tenido, habiendo perdido la vida casi una cada 3 mujeres de esta edad, mientras que en el resto de las edades esta relación va bajando.  
+
+```{r}
+
+  df_train %>% 
+  ggplot() + 
+  aes(x = Pclass, fill = as.factor(sobrevivio)) +
+  labs(x = "Clase del ticket", y = "Cantidad de personas", 
+       fill = "Supervivencia") +
+  geom_bar(position = "fill") + 
+  scale_y_continuous("Proporción", labels = scales::percent) +
+  labs(y = "Porcentaje de sobrevivientes",
+       title = "Supervivencia por Clase del ticket")+
+    scale_fill_brewer(palette = "Pastel1") +
+   facet_wrap(~ Sex) +
+  labs(caption = 'Gráfico 9 - Porcentaje de sobrevivientes')
+```
+
+Y aquí cuando abrimos la supervivencia por la clase en la que viajaban las personas y el sexo vemos que las que mayor supervivencia han tenido han sido las mujeres en clase 1, mientras que los hombres de clase 3 son los que peor supervivencia tuvieron.  
+
+```{r}
+ggplot(df_train) +
+  aes(x = Fare, y = ..count../sum(..count..))+
+  geom_histogram() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Fare $", 
+       y = "Porcentaje",
+       title = "Histograma del valor de ticket abierto por supervivencia") +
+  scale_fill_brewer(palette = "Pastel1") +
+   facet_wrap(~ sobrevivio)+
+    labs(caption = 'Gráfico 10 - "Histograma del valor de ticket abierto por supervivencia')
+
+
+```
+
+Aquí podemos ver que en el gráfico de la izquierda, que tenemos a los fallecidos en el Titanic, tenemos cerca del Fare en cero una gran cantidad de personas, mientras que cuanto mas pagaron cada vez hay menos personas muertas.  
+
+## Preprocesamiento de los datos
+
+Las variables del dataset de entrenamiento que utilizaremos para construir el árbol son Pclass, Sex, rango_edad, SibSp, Parch, Embarked y Fare. Estas variables nos ayudarán a predecir si la persona sobrevivió o no. Analizamos la posible existencia de valores faltantes, para ello primero imputamos NAs en todas las celdas vacías.  
+
+```{r}
+df_train_final = df_train %>% 
+                 select(sobrevivio ,Pclass, Sex, rango_edad, SibSp,Cabin ,Parch, Embarked, Fare) 
+
+df_train_final[df_train_final == '' | df_train_final == ' ' ] <- NA
+
+na_count  = sapply(df_train_final, function(y) sum(length(which(is.na(y)))))
+na_count = data.frame(na_count)
+
+knitr::kable(na_count)
+
+```
+*Tabla 3 - Cantidad de NAs por columnas*  
+
+
+Vemos que tenemos datos faltantes en la variable edad. Para construir nuestro modelo, no podemos tener valores nulos, por lo tanto, decidimos imputar estos registros en cuestión. Por el lado de la variable Embarked, solo tenemos 2 datos faltantes que serán imputados con el valor con más ocurrencias que es Southampton. Y la variable Cabin, tiene demasiados datos faltantes por lo que se sacó de las variables a utilizar para modelar nuestro árbol.   
+
+
+```{r}
+df_train_final = df_train_final %>% 
+                 mutate(Embarked = replace(Embarked, is.na(Embarked), "S"))
+
+
+```
+
+La edad la vamos a imputar mediante el método bagging empleando todos los otros predictores.  
+
+```{r}
+objeto_recipe <- recipe(formula = sobrevivio ~ Pclass + Sex + SibSp + Parch +
+                                  Fare + Embarked + rango_edad,
+                        data =  df_train_final) %>%  
+                  step_bagimpute(rango_edad)
+
+
+
+trained_recipe <- prep(objeto_recipe,
+                       training = df_train_final)
+
+trained_recipe
+
+datos_train_prep <- bake(trained_recipe,
+                         new_data = df_train_final
+                         )
+
+
+knitr::kable(glimpse(head(datos_train_prep)))
+```
+*Tabla 4 - Resumen de los datos como serán utilizados para modelar*  
+
+
+Decidimos entonces utilizar k-fold para poder construir distintos árboles y luego seleccionar al mejor, que será el que utilizaremos para predecir la supervivencia o no.    
+
+## Modelado y selección del mejor árbol  
+
+Construimos nuestros árboles:
+
+```{r}
+
+caret.control <- trainControl(method = "repeatedcv",
+                              number = 20, #20kf
+                              repeats = 10,
+                              classProbs = TRUE,
+                              summaryFunction = twoClassSummary) #repetidas 10 veces
+
+arbolcv <- train(sobrevivio ~ ., 
+                  data = datos_train_prep,
+                  method = "rpart",
+                  trControl = caret.control,
+                  tuneLength = 15,
+                  metric = 'ROC'
+                    )
+
+arbolcv
+
+```
+Lo que hacemos aquí es utilizar k-fold que lo que hace es separar los datos originales en dos, en entrenamiento y validación. 
+Luego, el conjunto de entrenamiento se va a dividir en k subconjuntos y, al momento de realizar el entrenamiento, se va a tomar cada k subconjunto como conjunto de prueba del modelo, mientras que el resto de los datos se tomará como conjunto de entrenamiento.
+
+Este proceso se repetirá k veces, y en cada iteración se seleccionará un conjunto de prueba diferente, mientras los datos restantes se emplearán, como se mencionó, como conjunto de entrenamiento. Una vez finalizadas las iteraciones, se calcula el área bajo la curva ROC, la sensibilidad y la especificidad para cada uno de los modelos producidos.  
+
+Tal y como solicita la consigna, seleccionamos el área bajo la curva ROC para elegir nuestro mejor árbol.
+
+Graficamos el árbol.  
+
+```{r fig.width=8, fig.height=12}
+prp(arbolcv$finalModel, 
+    type = 2, 
+    extra = 101
+   )
+```
+
+Y vemos ahora cuales fueron las variables mas relevantes.  
+```{r }
+                    
+plot(varImp(arbolcv), main="Variable Importance")
+```
+
+El árbol seleccionado tiene en su primer nodo la pregunta del género de la persona. Que la variable más importante sea el género, tiene concordancia con lo analizado en el EDA donde vimos que murieron muchos más hombres que mujeres en proporción con la cantidad que había. Luego sigue el valor del ticket, y esto también era fundamental, los varones que estaban en clases más altas y habían pagado el ticket más barato eran los que más murieron. Y luego sigue la clase 3, que sabemos que es donde iban los que menos habían pagado y más murieron, por lo que también es lógico.  
