@@ -1,0 +1,188 @@
+---
+title: "Trabajo Práctico Nro 1"
+subtitle: "Series de Tiempo"
+toc-title: "Indice de contenidos" 
+author:
+- Di Carlo Martina
+- Suárez Gilda
+- Pastrana Analía
+- Ortega Florencia
+- Ortega Verónica 
+  
+date: "`r format(Sys.time(), '%d %B %Y')`"
+  
+header-includes:
+  - \usepackage{titling}
+  - \pretitle{\begin{center}
+    \includegraphics[width=2in,height=2in]{logo.jpg}\LARGE\\}
+  - \posttitle{\end{center}}
+
+   
+fontsize: 12pt
+geometry: margin=1in
+
+bibliography: 
+  - "statistics.bib"
+
+output:
+  pdf_document
+---
+
+\thispagestyle{empty}
+\newpage
+
+\thispagestyle{empty}
+\abstract
+\newpage
+
+\thispagestyle{empty}
+\setcounter{tocdepth}{4}
+\tableofcontents
+\newpage
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# IV Introducción 
+
+```{r importacion de paquetes}
+#Creamos una lista con los paquetes que utilizaremos en este trabajo
+lista_paquetes <- c('here','easypackages','tseries','forecast', 'astsa','PerformanceAnalytics',
+                    'quantmod','Quandl','ggplot2', 'gridExtra','dygraphs','PASWR2','stats',
+                    'pastecs','psych','lessR', 'DescTools', 'dplyr', 'lubridate', 'zoo')
+
+#Nos quedamos en esta nueva lista solamente con aquellos que no tengamos instalados
+nuevos_paquetes <- lista_paquetes[!(lista_paquetes %in% installed.packages()[,"Package"])]
+
+#Si hay mas de 1 no instalado, lo instalamos
+if(length(nuevos_paquetes)) 
+  install.packages(nuevos_paquetes, dependencies = TRUE)
+
+#Importamos todos los paquetes
+suppressWarnings(suppressMessages(easypackages::libraries(lista_paquetes)))
+```
+
+
+```{r importacion y armado de series de tiempo stackoverflow}
+path <- here('TP1','DATOS')
+serie_consultas <- read.csv2(paste0(path,'/MLTollsStackOverflow.csv'),
+                            sep = ',',
+                            header = T)
+
+serie_consultas <- serie_consultas %>% 
+                   replace(is.na(.), 0) %>%
+                   mutate(total_searches = rowSums(.[2:82])) %>% 
+                   select('month', 'total_searches')
+serie_consultas <- serie_consultas %>% 
+                   mutate(month = paste0("20",month,"-01"), 
+                          month = as_date(month)
+                          ) 
+ts_consultas = ts(serie_consultas$total_searches, 
+                    frequency = 12, 
+                     start = c(2009,01)
+            )
+```
+
+```{r autoplots}
+ts_log_diff <-diff(log(ts_consultas))
+g_original <- autoplot(ts_consultas)
+g_log_diff <- autoplot(ts_log_diff)
+grid.arrange(g_original, g_log_diff)
+
+```
+Se puede observar que la serie no es estacionaria y que posee una marcada tendencia creciente
+
+```{r estacionarizacion}
+
+#para saber cuanto diferenciarla
+ndiffs(ts_consultas) #no tiene estacionalidad
+ndiffs(ts_log_diff) #si tiene estacionalidad
+
+```
+```{r FAC}
+g0 <- acf(ts_log_diff)
+g0
+g1  <-  ggAcf(ts_log_diff)+ 
+    ggtitle("FAC Serie diferenciada")
+g2 <- ggPacf(ts_log_diff)+ 
+    ggtitle("FACP Serie diferenciada")
+
+grid.arrange(g1, g2,ncol=1, nrow =2)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r importacion y armado de serie de tiempo de salarios argentina}
+
+salarios_arg <- read.csv2(paste0(path,'/salario_tecnologia.csv'),
+                            sep = ',',
+                            header = T)
+#Ver si mensualizamos como la otra serie
+
+salarios_arg <- salarios_arg %>% 
+               mutate(date_monthly = as_date(as.yearmon(mdy(Posting_date)))) %>% 
+               group_by(date_monthly) %>% 
+               summarise(cantidad = n()) 
+          
+
+ts_salarios = ts(salarios_arg$cantidad, 
+                    frequency = 12, 
+                     start = c(2011,07),
+                    )
+
+```
+
+```{r}
+autoplot(ts_salarios)
+```
+
+# V Marco Teórico (acá deberán escribir los modelos) 
+# VI Análisis de Resultados 
+# VII Conclusiones 
+# VIII Referencias bibliográficas
+# IX Apéndices 
